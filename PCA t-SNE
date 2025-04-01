@@ -1,0 +1,218 @@
+library(devtools)
+library(ggbiplot)
+library(Rtsne)
+library(car)
+library(psych)
+library(FNN)
+library(Hotelling)
+library(umap)
+
+
+
+iris_unique <- unique(iris)
+flower <- scale(iris_unique[, 1:4])
+
+Fish <- read.csv("~/Documents/2024/WIL 1/Project pres/Fish_dataset.csv", header=FALSE)
+Fishnames <- as.character(Fish[1, ])
+Fishdata <- Fish[-1,]
+colnames(Fishdata) <- Fishnames
+Fishdata$Weight <- as.numeric(Fishdata$Weight)
+Fishdata$Length1 <- as.numeric(Fishdata$Length1)
+Fishdata$Length2 <- as.numeric(Fishdata$Length2)
+Fishdata$Length3 <- as.numeric(Fishdata$Length3)
+Fishdata$Height <- as.numeric(Fishdata$Height)
+Fishdata$Width <- as.numeric(Fishdata$Width)
+
+Fishpre <- scale(Fishdata[,2:7])
+
+## Assumption Checking
+
+prflw <- pairs(flower)
+
+prfish <- pairs(Fishpre)
+
+corflw <- cor(flower)
+
+corfish <- cor(Fishpre)
+
+corflw
+
+corfish
+
+cortest.bartlett(corflw, n = 4)
+
+cortest.bartlett(corfish, n = 6)
+
+det(corflw)
+
+det(corfish)
+
+mdflw <- mahalanobis(flower, colMeans(flower), cov(flower))
+Cchiflw <- qchisq(0.95, df = ncol(flower))
+outflw <- as.vector(which(mdflw > Cchiflw))
+print(outflw)
+
+qqPlot(mdflw, main = "QQ of Flower Outliers")
+
+flower <- flower[mdflw < Cchiflw, ]
+iris_unique <- iris_unique[-outflw, ]
+
+
+
+mdfish <- mahalanobis(Fishpre, colMeans(Fishpre), cov(Fishpre))
+Cchifish <- qchisq(0.95, df = ncol(Fishpre))
+outfish <- as.vector(which(mdfish > Cchifish))
+print(outfish)
+
+qqPlot(mdfish, main = "QQ of Fish Outliers")
+
+Fishproc <- Fishpre[mdfish < Cchifish, ]
+Fishdata <- Fishdata[-outfish, ]
+
+## Data Recreation
+
+flwPC <- prcomp(flower, center = TRUE, scale = TRUE)
+
+flwTsne <- Rtsne(flower, perplexity = 20)$Y
+
+fishPC = prcomp(Fishproc, center = TRUE, scale = TRUE)
+
+tsnefish <- Rtsne(Fishproc, perplexity = 25)$Y
+
+# Model Summaries
+
+summary(flwPC)
+
+print(flwPC)
+
+summary(fishPC)
+
+print(fishPC)
+
+# Reduction Checks
+
+pairs.panels(flwPC$x,
+             gap=0,
+             pch=21,
+             main = "Flower autocorrelation")
+
+pairs.panels(fishPC$x,
+             gap=0,
+             pch=21,
+             main = "Fish autocorrelation")
+
+var_exp <- flwPC$sdev^2 / sum(flwPC$sdev^2)
+
+qplot(c(1:4), var_exp) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+
+var_exp <- fishPC$sdev^2 / sum(fishPC$sdev^2)
+
+qplot(c(1:6), var_exp) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+
+# Reduction Graphing
+
+  # Flower
+
+plot(flwTsne, col = factor(iris$Species),
+     main = "Iris t-SNE")
+legend("bottomright",
+       legend =levels(factor(iris_unique$Species)),
+       col = 1:length(levels(factor(iris_unique$Species))),
+       pch = 16,
+       cex = 0.6)
+
+PCAflw <- ggbiplot(flwPC, 
+                 obs.scale = 1,
+                 var.scale = 1,
+                 groups = iris_unique$Species,
+                 ellipse = TRUE,
+                 ellipse.prob = 0.68) + 
+  theme(legend.direction = 'vertical',
+        legend.position = 'right') + ggtitle("Iris PCA")
+
+PCAflw
+
+  # Fish
+
+plot(tsnefish, col = factor(Fishdata$Species), main = "Fish t-SNE")
+legend("bottomright",
+       legend = levels(factor(Fishdata$Species)),
+       col = 1:length(levels(factor(Fishdata$Species))), 
+       pch = 16,
+       cex = 0.6)
+
+fishPCg <- ggbiplot(fishPC, 
+                    obs.scale = 1,
+                    var.scale = 1,
+                    groups = Fishdata$Species,
+                    ellipse = TRUE,
+                    ellipse.prob = 0.95) + 
+  theme(legend.direction = 'vertical',legend.position = "right") + 
+  ggtitle("Fish PCA") + theme(aspect.ratio = 0.8)
+
+fishPCg
+
+# Further Checks
+
+  # Knn
+
+knn_retention <- function(HDdata, LDdata, k=10) {
+  HDknn <- get.knn(HDdata, k=k)$nn.index
+  LDknn <- get.knn(LDdata, k=k)$nn.index
+  knnret <- sapply(1:nrow(HDdata), function(i) {
+    length(intersect(HDknn[i, ], LDknn[i, ])) / k
+  })
+  return(mean(knnret))
+}
+
+    # t-SNE
+
+fishtsne5 <- knn_retention(Fishproc, tsnefish, k= 5)
+fishtsne15 <- knn_retention(Fishproc, tsnefish, k= 15)
+fishtsne30 <- knn_retention(Fishproc, tsnefish, k= 30)
+
+flwtsne5 <- knn_retention(flower, flwTsne, k= 5)
+flwtsne15 <- knn_retention(flower, flwTsne, k= 15)
+flwtsne30 <- knn_retention(flower, flwTsne, k= 30)
+
+    # PCA
+
+fishpc5 <- knn_retention(Fishproc, fishPC$x[,1:2], k= 5)
+fishpc15 <- knn_retention(Fishproc, fishPC$x[,1:2], k= 15)
+fishpc30 <- knn_retention(Fishproc, fishPC$x[,1:2], k= 30)
+
+flwpc5 <- knn_retention(flower, flwPC$x[,1:2], k= 5)
+flwpc15 <-  knn_retention(flower, flwPC$x[,1:2], k= 15)
+flwpc30 <-  knn_retention(flower, flwPC$x[,1:2], k= 30)
+
+knnresults <- data.frame(
+  "K Value" = c("5", "15", "30"),
+  "Fish PC" = c(fishpc5, fishpc15, fishpc30),
+  "Fish tSNE" = c(fishtsne5, fishtsne15, fishtsne30),
+  "Flower PC" = c(flwpc5, flwpc15, flwpc30),
+  "Flower tSNE" = c(flwtsne5, flwtsne15, flwpc30)
+)
+
+knnresults
+
+  # Reconstruction Error
+
+ReconEr <- function(HDdata, LDdata, d =2) {
+recdata <- LDdata$x[, 1:d] %*% t(LDdata$rotation[, 1:d])
+MNrecdata <- scale(recdata, center = -colMeans(HDdata), scale = FALSE)
+RecEr <- mean((HDdata - MNrecdata)^2)
+return(RecEr)
+}
+
+ReconEr(flower, flwPC)
+ReconEr(Fishproc, fishPC)
